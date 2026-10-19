@@ -46,6 +46,32 @@ namespace Helios.Infrastructure.Persistence.Migrations
 
                     b.ToTable("Machines");
                 });
+
+            modelBuilder.Entity("Helios.Domain.Entities.SimulationRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CurrentStage")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("EndTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ProducedItems")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("StartTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SimulationRuns");
+                });
 #pragma warning restore 612, 618
         }
     }
