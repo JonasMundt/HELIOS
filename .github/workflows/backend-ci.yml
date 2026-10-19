@@ -1,0 +1,33 @@
+
+name: HELIOS Backend CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore HELIOS.sln
+
+      - name: Build solution
+        run: dotnet build HELIOS.sln --no-restore --configuration Release
+
+      - name: Run unit tests
+        run: dotnet test HELIOS.sln --no-build --configuration Release
