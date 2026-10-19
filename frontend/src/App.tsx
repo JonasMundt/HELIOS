@@ -9,33 +9,64 @@ interface SystemStatus {
   description: string
 }
 
+interface Machine {
+  id: string
+  name: string
+  type: number
+  status: number
+  createdAt: string
+}
+
+const machineTypes = [
+  'Conveyor Belt',
+  'Scanner Station',
+  'Hydraulic Press',
+  'Robot Arm',
+]
+
+const machineStatuses = [
+  'OFFLINE',
+  'IDLE',
+  'RUNNING',
+  'WARNING',
+  'ERROR',
+]
+
 function App() {
   const [system, setSystem] = useState<SystemStatus | null>(null)
+  const [machines, setMachines] = useState<Machine[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const controller = new AbortController()
 
-    async function loadSystemStatus() {
+    async function loadDashboard() {
       try {
-        const response = await fetch('/api/system/status', {
-          signal: controller.signal,
-        })
+        const [systemResponse, machinesResponse] = await Promise.all([
+          fetch('/api/system/status', { signal: controller.signal }),
+          fetch('/api/machines', { signal: controller.signal }),
+        ])
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`)
+        if (!systemResponse.ok || !machinesResponse.ok) {
+          throw new Error('Failed to load dashboard data')
         }
 
-        const data: SystemStatus = await response.json()
-        setSystem(data)
+        const systemData: SystemStatus = await systemResponse.json()
+        const machinesData: Machine[] = await machinesResponse.json()
+
+        setSystem(systemData)
+        setMachines(machinesData)
       } catch (err) {
         if (controller.signal.aborted) return
-        setError('Backend konnte nicht erreicht werden.')
+        setError('Backend could not be reached.')
         console.error(err)
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
       }
     }
 
-    loadSystemStatus()
+    loadDashboard()
 
     return () => controller.abort()
   }, [])
@@ -50,7 +81,9 @@ function App() {
       <section className="status-card">
         <h2>System Overview</h2>
 
-        {error ? (
+        {loading ? (
+          <p>Connecting to backend...</p>
+        ) : error ? (
           <p className="error">{error}</p>
         ) : system ? (
           <>
@@ -61,9 +94,27 @@ function App() {
             <p>Version: {system.version}</p>
             <p>{system.description}</p>
           </>
-        ) : (
-          <p>Connecting to backend...</p>
-        )}
+        ) : null}
+      </section>
+
+      <section className="machines-section">
+        <h2>Machines</h2>
+
+        <div className="machine-grid">
+          {machines.map((machine) => (
+            <article className="machine-card" key={machine.id}>
+              <h3>{machine.name}</h3>
+              <p>Type: {machineTypes[machine.type] ?? 'Unknown'}</p>
+              <p>
+                Status:{' '}
+                <span className={`machine-status status-${machine.status}`}>
+                  {machineStatuses[machine.status] ?? 'UNKNOWN'}
+                </span>
+              </p>
+              <small>ID: {machine.id.slice(0, 8)}...</small>
+            </article>
+          ))}
+        </div>
       </section>
     </main>
   )

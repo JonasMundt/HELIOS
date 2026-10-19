@@ -45,3 +45,81 @@
 .error {
   color: #ef4444;
 }
+
+
+.machines-section {
+  margin-top: 48px;
+}
+
+.machines-section h2 {
+  margin-bottom: 24px;
+}
+
+.machine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.machine-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 24px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.machine-card:hover {
+  border-color: #38bdf8;
+  transform: translateY(-3px);
+}
+
+.machine-card h3 {
+  color: #e2e8f0;
+  margin-top: 0;
+}
+
+.machine-card p {
+  color: #94a3b8;
+}
+
+.machine-card small {
+  color: #64748b;
+}
+
+.machine-status {
+  font-weight: bold;
+}
+
+.status-0 {
+  color: #94a3b8;
+}
+
+.status-1 {
+  color: #38bdf8;
+}
+
+.status-2 {
+  color: #22c55e;
+}
+
+.status-3 {
+  color: #facc15;
+}
+
+.status-4 {
+  color: #ef4444;
+}
+
+@media (max-width: 600px) {
+  .dashboard {
+    padding: 20px;
+  }
+
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
