@@ -12,4 +12,5 @@ public interface IMachineRepository
     Task AddAsync(Machine machine);
 
     Task SaveChangesAsync();
+    Task<IReadOnlyList<Machine>> GetAllTrackedAsync();
 }

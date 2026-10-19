@@ -15,11 +15,19 @@ public class MachineRepository : IMachineRepository
         _context = context;
     }
 
-
+    // Read machines without tracking (dashboard)
     public async Task<IReadOnlyList<Machine>> GetAllAsync()
     {
         return await _context.Machines
             .AsNoTracking()
+            .OrderBy(machine => machine.Type)
+            .ToListAsync();
+    }
+
+    // Read machines with tracking (automatic control)
+    public async Task<IReadOnlyList<Machine>> GetAllTrackedAsync()
+    {
+        return await _context.Machines
             .OrderBy(machine => machine.Type)
             .ToListAsync();
     }

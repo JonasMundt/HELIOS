@@ -69,7 +69,7 @@ function App() {
   const [busyMachineId, setBusyMachineId] = useState<string | null>(null)
   const [simulationBusy, setSimulationBusy] = useState(false)
 
-  // Initial dashboard loading
+  // Load dashboard data on startup
   useEffect(() => {
     const controller = new AbortController()
 
@@ -99,12 +99,15 @@ function App() {
           throw new Error('Failed to load dashboard data')
         }
 
-        const [systemData, machinesData, simulationsData] =
-          await Promise.all([
-            systemResponse.json(),
-            machinesResponse.json(),
-            simulationsResponse.json(),
-          ])
+        const [systemData, machinesData, simulationsData]: [
+          SystemStatus,
+          Machine[],
+          SimulationRun[],
+        ] = await Promise.all([
+          systemResponse.json(),
+          machinesResponse.json(),
+          simulationsResponse.json(),
+        ])
 
         if (controller.signal.aborted) return
 
@@ -130,35 +133,47 @@ function App() {
     return () => controller.abort()
   }, [])
 
-  // Refresh production simulations every two seconds
+  // Refresh machines and simulations every two seconds
   useEffect(() => {
     const controller = new AbortController()
 
-    async function refreshSimulations() {
+    async function refreshProductionData() {
       try {
-        const response = await fetch('/api/simulations', {
-          signal: controller.signal,
-        })
+        const [simulationsResponse, machinesResponse] =
+          await Promise.all([
+            fetch('/api/simulations', {
+              signal: controller.signal,
+            }),
+            fetch('/api/machines', {
+              signal: controller.signal,
+            }),
+          ])
 
-        if (!response.ok) {
-          throw new Error('Failed to refresh simulations')
+        if (!simulationsResponse.ok || !machinesResponse.ok) {
+          throw new Error('Failed to refresh production data')
         }
 
-        const updatedSimulations: SimulationRun[] =
-          await response.json()
+        const [updatedSimulations, updatedMachines]: [
+          SimulationRun[],
+          Machine[],
+        ] = await Promise.all([
+          simulationsResponse.json(),
+          machinesResponse.json(),
+        ])
 
-        if (!controller.signal.aborted) {
-          setSimulations(updatedSimulations)
-        }
+        if (controller.signal.aborted) return
+
+        setSimulations(updatedSimulations)
+        setMachines(updatedMachines)
       } catch (err) {
         if (!controller.signal.aborted) {
-          console.error('Simulation refresh failed:', err)
+          console.error('Production refresh failed:', err)
         }
       }
     }
 
     const interval = window.setInterval(
-      refreshSimulations,
+      refreshProductionData,
       2000,
     )
 
@@ -168,11 +183,13 @@ function App() {
     }
   }, [])
 
-  // Machine control
+  // Manual machine control
   async function controlMachine(
     id: string,
     action: 'start' | 'stop',
   ) {
+    if (simulationRunning || simulationBusy) return
+
     setBusyMachineId(id)
     setError(null)
 
@@ -210,6 +227,8 @@ function App() {
 
   // Start automatic production simulation
   async function startSimulation() {
+    if (simulationRunning || simulationBusy) return
+
     setSimulationBusy(true)
     setError(null)
 
@@ -224,9 +243,7 @@ function App() {
         )
       }
 
-      const simulationsResponse = await fetch(
-        '/api/simulations',
-      )
+      const simulationsResponse = await fetch('/api/simulations')
 
       if (!simulationsResponse.ok) {
         throw new Error('Failed to refresh simulations')
@@ -243,30 +260,48 @@ function App() {
       setSimulationBusy(false)
     }
   }
-  
+
+  // Cancel a running simulation
   async function stopSimulation(id: string) {
+    if (simulationBusy) return
+
     setSimulationBusy(true)
     setError(null)
 
     try {
-      const response = await fetch(`/api/simulations/${id}/stop`, {
-        method: 'POST',
-      })
+      const response = await fetch(
+        `/api/simulations/${id}/stop`,
+        {
+          method: 'POST',
+        },
+      )
 
       if (!response.ok) {
-        throw new Error(`Simulation stop failed: ${response.status}`)
+        throw new Error(
+          `Simulation stop failed: ${response.status}`,
+        )
       }
 
-      const simulationsResponse = await fetch('/api/simulations')
+      const [simulationsResponse, machinesResponse] =
+        await Promise.all([
+          fetch('/api/simulations'),
+          fetch('/api/machines'),
+        ])
 
-      if (!simulationsResponse.ok) {
-        throw new Error('Failed to refresh simulations')
+      if (!simulationsResponse.ok || !machinesResponse.ok) {
+        throw new Error('Failed to refresh production data')
       }
 
-      const updatedSimulations: SimulationRun[] =
-        await simulationsResponse.json()
+      const [updatedSimulations, updatedMachines]: [
+        SimulationRun[],
+        Machine[],
+      ] = await Promise.all([
+        simulationsResponse.json(),
+        machinesResponse.json(),
+      ])
 
       setSimulations(updatedSimulations)
+      setMachines(updatedMachines)
     } catch (err) {
       setError('Could not stop simulation.')
       console.error(err)
@@ -275,10 +310,16 @@ function App() {
     }
   }
 
-
   const simulationRunning = simulations.some(
     (simulation) => simulation.status === 1,
   )
+
+  const machineControlsDisabled =
+    loading ||
+    simulationsLoading ||
+    simulationRunning ||
+    simulationBusy ||
+    busyMachineId !== null
 
   return (
     <main className="dashboard">
@@ -350,7 +391,7 @@ function App() {
                 <button
                   className="start-button"
                   disabled={
-                    busyMachineId !== null ||
+                    machineControlsDisabled ||
                     machine.status === 2
                   }
                   onClick={() =>
@@ -363,7 +404,7 @@ function App() {
                 <button
                   className="stop-button"
                   disabled={
-                    busyMachineId !== null ||
+                    machineControlsDisabled ||
                     machine.status === 0
                   }
                   onClick={() =>
@@ -383,12 +424,16 @@ function App() {
 
         <button
           className="start-button"
-          disabled={simulationBusy || simulationRunning}
+          disabled={
+            loading ||
+            simulationsLoading ||
+            simulationBusy ||
+            simulationRunning ||
+            busyMachineId !== null
+          }
           onClick={startSimulation}
         >
-          {simulationBusy
-            ? 'Starting...'
-            : 'Start Simulation'}
+          {simulationBusy ? 'Starting...' : 'Start Simulation'}
         </button>
 
         {simulationsLoading ? (
@@ -397,110 +442,94 @@ function App() {
           <p>No production simulations available.</p>
         ) : (
           <div className="simulation-grid">
-            {simulations.map((simulation) => (
-              <article
-                className="simulation-card"
-                key={simulation.id}
-              >
-                <h3>
-                  Simulation {simulation.id.slice(0, 8)}
-                </h3>
+            {simulations.map((simulation) => {
+              const progress = Math.round(
+                (simulation.currentStage / 5) * 100,
+              )
 
-                <p>
-                  Status:{' '}
-                  <strong className={`simulation-status simulation-status-${simulation.status}`}>
-                    {simulationStatuses[simulation.status] ?? 'UNKNOWN'}
-                  </strong>
-                </p>
+              return (
+                <article
+                  className="simulation-card"
+                  key={simulation.id}
+                >
+                  <h3>
+                    Simulation {simulation.id.slice(0, 8)}
+                  </h3>
 
-                <p>
-                  Current Stage:{' '}
-                  {productionStages[
-                    simulation.currentStage
-                  ] ?? 'Unknown'}
-                </p>
-                
-                <div className="simulation-progress">
-                  <div className="simulation-progress-info">
-                    <span>Production Progress</span>
-                    <span>{Math.round((simulation.currentStage / 5) * 100)}%</span>
-                  </div>
+                  <p>
+                    Status:{' '}
+                    <strong
+                      className={`simulation-status simulation-status-${simulation.status}`}
+                    >
+                      {simulationStatuses[simulation.status] ??
+                        'UNKNOWN'}
+                    </strong>
+                  </p>
 
-                  <div
-                    className="simulation-progress-track"
-                    role="progressbar"
-                    aria-label="Production progress"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round((simulation.currentStage / 5) * 100)}
-                  >
+                  <p>
+                    Current Stage:{' '}
+                    {productionStages[simulation.currentStage] ??
+                      'Unknown'}
+                  </p>
+
+                  <div className="simulation-progress">
+                    <div className="simulation-progress-info">
+                      <span>Production Progress</span>
+                      <span>{progress}%</span>
+                    </div>
+
                     <div
-                      className={`simulation-progress-fill ${
-                        simulation.status === 4 ? 'cancelled' : ''
-                      }`}
-                      style={{
-                        width: `${Math.round((simulation.currentStage / 5) * 100)}%`,
-                      }}
-                    />
+                      className="simulation-progress-track"
+                      role="progressbar"
+                      aria-label="Production progress"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={progress}
+                    >
+                      <div
+                        className={`simulation-progress-fill ${
+                          simulation.status === 4
+                            ? 'cancelled'
+                            : ''
+                        }`}
+                        style={{
+                          width: `${progress}%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
 
+                  <p>
+                    Produced Items: {simulation.producedItems}
+                  </p>
 
-                
-                <div className="simulation-progress">
-                  <div className="simulation-progress-info">
-                    <span>Production Progress</span>
-                    <span>{Math.round((simulation.currentStage / 5) * 100)}%</span>
-                  </div>
-
-                  <div
-                    className="simulation-progress-track"
-                    role="progressbar"
-                    aria-label="Production progress"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round((simulation.currentStage / 5) * 100)}
-                  >
-                    <div
-                      className={`simulation-progress-fill ${
-                        simulation.status === 4 ? 'cancelled' : ''
-                      }`}
-                      style={{
-                        width: `${Math.round((simulation.currentStage / 5) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-
-
-                <p>
-                  Produced Items:{' '}
-                  {simulation.producedItems}
-                </p>
-                
                   {simulation.status === 1 && (
                     <div className="simulation-actions">
                       <button
                         className="stop-button"
                         disabled={simulationBusy}
-                        onClick={() => stopSimulation(simulation.id)}
+                        onClick={() =>
+                          stopSimulation(simulation.id)
+                        }
                       >
-                        {simulationBusy ? 'Stopping...' : 'Stop Simulation'}
+                        {simulationBusy
+                          ? 'Stopping...'
+                          : 'Stop Simulation'}
                       </button>
                     </div>
                   )}
 
-
-                <small>
-                  Started:{' '}
-                  {simulation.startTime
-                    ? new Date(
-                        simulation.startTime,
-                      ).toLocaleString()
-                    : 'Not started'}
-                </small>
-              </article>
-            ))}
+                  <small>
+                    Started:{' '}
+                    {simulation.startTime
+                      ? new Date(
+                          simulation.startTime,
+                        ).toLocaleString()
+                      : 'Not started'}
+                  </small>
+                </article>
+              )
+            })}
           </div>
         )}
       </section>

@@ -40,6 +40,9 @@ public class SimulationWorker : BackgroundService
                     var simulationService = scope.ServiceProvider
                         .GetRequiredService<SimulationService>();
 
+                    var machineService = scope.ServiceProvider
+                        .GetRequiredService<MachineService>();
+
                     var activeSimulation = await repository.GetActiveAsync();
 
                     if (activeSimulation is null)
@@ -49,6 +52,11 @@ public class SimulationWorker : BackgroundService
 
                     var updatedSimulation =
                         await simulationService.AdvanceAsync(activeSimulation.Id);
+                    if (updatedSimulation is not null)
+                        {
+                            await machineService.UpdateMachinesForStageAsync(
+                                updatedSimulation.CurrentStage);
+                        }
 
                     _logger.LogInformation(
                         "Simulation {SimulationId} advanced to stage {Stage}.",

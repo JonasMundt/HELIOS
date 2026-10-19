@@ -4,6 +4,7 @@ using Helios.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Helios.Application.Interfaces;
 using Helios.Infrastructure.Repositories;
+using Helios.Domain.Enums;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -84,9 +85,24 @@ var app = builder.Build();
     });
 
 
+
     app.MapPost("/api/machines/{id:guid}/start",
-        async (Guid id, MachineService machineService) =>
+        async (
+            Guid id,
+            MachineService machineService,
+            ISimulationRepository simulationRepository) =>
     {
+        var activeSimulation =
+            await simulationRepository.GetActiveAsync();
+
+        if (activeSimulation is not null)
+        {
+            return Results.Conflict(new
+            {
+                Message = "Manual machine control is unavailable during an active simulation."
+            });
+        }
+
         var success = await machineService.StartMachineAsync(id);
 
         if (!success)
@@ -104,9 +120,25 @@ var app = builder.Build();
         });
     });
 
+
+
     app.MapPost("/api/machines/{id:guid}/stop",
-        async (Guid id, MachineService machineService) =>
+        async (
+            Guid id,
+            MachineService machineService,
+            ISimulationRepository simulationRepository) =>
     {
+        var activeSimulation =
+            await simulationRepository.GetActiveAsync();
+
+        if (activeSimulation is not null)
+        {
+            return Results.Conflict(new
+            {
+                Message = "Manual machine control is unavailable during an active simulation."
+            });
+        }
+
         var success = await machineService.StopMachineAsync(id);
 
         if (!success)
@@ -123,6 +155,7 @@ var app = builder.Build();
             MachineId = id
         });
     });
+
 
 
     // Get all simulation runs
@@ -164,24 +197,43 @@ var app = builder.Build();
         }
     });
 
+
     // Cancel a running simulation
     app.MapPost("/api/simulations/{id:guid}/stop",
-        async (Guid id, SimulationService simulationService) =>
+        async (
+            Guid id,
+            SimulationService simulationService,
+            MachineService machineService) =>
     {
         try
         {
             var success = await simulationService.CancelAsync(id);
 
-            return success
-                ? Results.Ok(new { Message = "Simulation cancelled." })
-                : Results.NotFound();
+            if (!success)
+            {
+                return Results.NotFound(new
+                {
+                    Message = "Simulation not found."
+                });
+            }
+
+            // Reset all machines after cancellation
+            await machineService.UpdateMachinesForStageAsync(
+                ProductionStage.Waiting);
+
+            return Results.Ok(new
+            {
+                Message = "Simulation cancelled."
+            });
         }
         catch (InvalidOperationException ex)
         {
-            return Results.Conflict(new { Message = ex.Message });
+            return Results.Conflict(new
+            {
+                Message = ex.Message
+            });
         }
     });
-
 
     app.MapPost("/api/simulations/{id:guid}/advance",
         async (Guid id, SimulationService simulationService) =>

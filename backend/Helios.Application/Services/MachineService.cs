@@ -53,4 +53,32 @@ public class MachineService
 
         return true;
     }
+
+    public async Task UpdateMachinesForStageAsync(
+        ProductionStage stage)
+    {
+        var machines = await _repository.GetAllTrackedAsync();
+
+        MachineType? activeMachine = stage switch
+        {
+            ProductionStage.ConveyorBelt => MachineType.ConveyorBelt,
+            ProductionStage.Scanning => MachineType.Scanner,
+            ProductionStage.Pressing => MachineType.HydraulicPress,
+            ProductionStage.RobotArm => MachineType.RobotArm,
+            _ => null
+        };
+
+        foreach (var machine in machines)
+        {
+            var newStatus =
+                activeMachine.HasValue &&
+                machine.Type == activeMachine.Value
+                    ? MachineStatus.Running
+                    : MachineStatus.Idle;
+
+            machine.SetStatus(newStatus);
+        }
+
+        await _repository.SaveChangesAsync();
+    }
 }
