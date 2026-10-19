@@ -1,6 +1,12 @@
 
 import { useEffect, useState } from 'react'
 import './App.css'
+import {
+  signalRConnection,
+  startSignalRConnection,
+  stopSignalRConnection,
+  subscribeToReconnect,
+} from './services/signalRService'
 
 interface SystemStatus {
   name: string
@@ -69,7 +75,10 @@ function App() {
   const [busyMachineId, setBusyMachineId] = useState<string | null>(null)
   const [simulationBusy, setSimulationBusy] = useState(false)
 
-  // Load dashboard data on startup
+  // --------------------------------------------------
+  // INITIAL DASHBOARD DATA
+  // --------------------------------------------------
+
   useEffect(() => {
     const controller = new AbortController()
 
@@ -128,62 +137,159 @@ function App() {
       }
     }
 
-    loadDashboard()
+    void loadDashboard()
 
     return () => controller.abort()
   }, [])
 
-  // Refresh machines and simulations every two seconds
+  // --------------------------------------------------
+  // SIGNALR CONNECTION
+  // --------------------------------------------------
+
   useEffect(() => {
-    const controller = new AbortController()
+    void startSignalRConnection()
 
-    async function refreshProductionData() {
+    return () => {
+      void stopSignalRConnection()
+    }
+  }, [])
+
+  // --------------------------------------------------
+  // LIVE MACHINE UPDATES
+  // --------------------------------------------------
+
+  useEffect(() => {
+    async function refreshMachines() {
       try {
-        const [simulationsResponse, machinesResponse] =
-          await Promise.all([
-            fetch('/api/simulations', {
-              signal: controller.signal,
-            }),
-            fetch('/api/machines', {
-              signal: controller.signal,
-            }),
-          ])
+        const response = await fetch('/api/machines')
 
-        if (!simulationsResponse.ok || !machinesResponse.ok) {
-          throw new Error('Failed to refresh production data')
+        if (!response.ok) {
+          throw new Error('Failed to refresh machines')
         }
 
-        const [updatedSimulations, updatedMachines]: [
-          SimulationRun[],
-          Machine[],
-        ] = await Promise.all([
-          simulationsResponse.json(),
-          machinesResponse.json(),
-        ])
+        const updatedMachines: Machine[] =
+          await response.json()
 
-        if (controller.signal.aborted) return
+        setMachines(updatedMachines)
+
+        console.log('HELIOS LIVE: Machine dashboard updated!')
+      } catch (err) {
+        console.error(
+          'SignalR machine refresh failed:',
+          err,
+        )
+      }
+    }
+
+    signalRConnection.on(
+      'MachinesChanged',
+      refreshMachines,
+    )
+
+    return () => {
+      signalRConnection.off(
+        'MachinesChanged',
+        refreshMachines,
+      )
+    }
+  }, [])
+
+  
+  // --------------------------------------------------
+  // LIVE SIMULATION UPDATES
+  // --------------------------------------------------
+
+  useEffect(() => {
+    async function refreshSimulations() {
+      try {
+        const response = await fetch('/api/simulations')
+
+        if (!response.ok) {
+          throw new Error('Failed to refresh simulations')
+        }
+
+        const updatedSimulations: SimulationRun[] =
+          await response.json()
 
         setSimulations(updatedSimulations)
-        setMachines(updatedMachines)
+
+        console.log('HELIOS LIVE: Simulation dashboard updated!')
       } catch (err) {
-        if (!controller.signal.aborted) {
-          console.error('Production refresh failed:', err)
+        console.error('SignalR simulation refresh failed:', err)
+      }
+    }
+
+    signalRConnection.on(
+      'SimulationsChanged',
+      refreshSimulations,
+    )
+
+    return () => {
+      signalRConnection.off(
+        'SimulationsChanged',
+        refreshSimulations,
+      )
+    }
+  }, [])
+
+
+  // Synchronize dashboard after SignalR reconnects
+  useEffect(() => {
+    let active = true
+
+    async function refreshAfterReconnect() {
+      try {
+        const [machinesResponse, simulationsResponse] =
+          await Promise.all([
+            fetch('/api/machines'),
+            fetch('/api/simulations'),
+          ])
+
+        if (!machinesResponse.ok || !simulationsResponse.ok) {
+          throw new Error('Failed to synchronize dashboard')
+        }
+
+        const [updatedMachines, updatedSimulations]: [
+          Machine[],
+          SimulationRun[],
+        ] = await Promise.all([
+          machinesResponse.json(),
+          simulationsResponse.json(),
+        ])
+
+        if (!active) return
+
+        setMachines(updatedMachines)
+        setSimulations(updatedSimulations)
+
+        console.log(
+          'HELIOS LIVE: Dashboard synchronized after reconnect!',
+        )
+      } catch (err) {
+        if (active) {
+          console.error(
+            'SignalR reconnect synchronization failed:',
+            err,
+          )
         }
       }
     }
 
-    const interval = window.setInterval(
-      refreshProductionData,
-      2000,
-    )
+    const unsubscribe = subscribeToReconnect(() => {
+      void refreshAfterReconnect()
+    })
 
     return () => {
-      controller.abort()
-      window.clearInterval(interval)
+      active = false
+      unsubscribe()
     }
   }, [])
 
-  // Manual machine control
+
+  // --------------------------------------------------
+  // MANUAL MACHINE CONTROL
+  // --------------------------------------------------
+
   async function controlMachine(
     id: string,
     action: 'start' | 'stop',
@@ -225,7 +331,10 @@ function App() {
     }
   }
 
-  // Start automatic production simulation
+  // --------------------------------------------------
+  // START AUTOMATIC SIMULATION
+  // --------------------------------------------------
+
   async function startSimulation() {
     if (simulationRunning || simulationBusy) return
 
@@ -243,7 +352,8 @@ function App() {
         )
       }
 
-      const simulationsResponse = await fetch('/api/simulations')
+      const simulationsResponse =
+        await fetch('/api/simulations')
 
       if (!simulationsResponse.ok) {
         throw new Error('Failed to refresh simulations')
@@ -261,7 +371,10 @@ function App() {
     }
   }
 
-  // Cancel a running simulation
+  // --------------------------------------------------
+  // STOP AUTOMATIC SIMULATION
+  // --------------------------------------------------
+
   async function stopSimulation(id: string) {
     if (simulationBusy) return
 
@@ -288,7 +401,10 @@ function App() {
           fetch('/api/machines'),
         ])
 
-      if (!simulationsResponse.ok || !machinesResponse.ok) {
+      if (
+        !simulationsResponse.ok ||
+        !machinesResponse.ok
+      ) {
         throw new Error('Failed to refresh production data')
       }
 
@@ -310,6 +426,10 @@ function App() {
     }
   }
 
+  // --------------------------------------------------
+  // DERIVED DASHBOARD STATE
+  // --------------------------------------------------
+
   const simulationRunning = simulations.some(
     (simulation) => simulation.status === 1,
   )
@@ -320,6 +440,10 @@ function App() {
     simulationRunning ||
     simulationBusy ||
     busyMachineId !== null
+
+  // --------------------------------------------------
+  // DASHBOARD UI
+  // --------------------------------------------------
 
   return (
     <main className="dashboard">
@@ -433,7 +557,9 @@ function App() {
           }
           onClick={startSimulation}
         >
-          {simulationBusy ? 'Starting...' : 'Start Simulation'}
+          {simulationBusy
+            ? 'Starting...'
+            : 'Start Simulation'}
         </button>
 
         {simulationsLoading ? (

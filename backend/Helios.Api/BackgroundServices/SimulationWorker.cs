@@ -1,4 +1,5 @@
 
+using Helios.Api.Services;
 using Helios.Application.Interfaces;
 using Helios.Application.Services;
 
@@ -8,13 +9,16 @@ public class SimulationWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SimulationWorker> _logger;
+    private readonly HeliosRealtimeNotifier _notifier;
 
     public SimulationWorker(
         IServiceScopeFactory scopeFactory,
-        ILogger<SimulationWorker> logger)
+        ILogger<SimulationWorker> logger,
+        HeliosRealtimeNotifier notifier)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _notifier = notifier;
     }
 
     protected override async Task ExecuteAsync(
@@ -43,24 +47,36 @@ public class SimulationWorker : BackgroundService
                     var machineService = scope.ServiceProvider
                         .GetRequiredService<MachineService>();
 
-                    var activeSimulation = await repository.GetActiveAsync();
+                    // Find the currently active simulation
+                    var activeSimulation =
+                        await repository.GetActiveAsync();
 
                     if (activeSimulation is null)
                     {
                         continue;
                     }
 
+                    // Advance production to the next stage
                     var updatedSimulation =
-                        await simulationService.AdvanceAsync(activeSimulation.Id);
-                    if (updatedSimulation is not null)
-                        {
-                            await machineService.UpdateMachinesForStageAsync(
-                                updatedSimulation.CurrentStage);
-                        }
+                        await simulationService.AdvanceAsync(
+                            activeSimulation.Id);
+
+                    if (updatedSimulation is null)
+                    {
+                        continue;
+                    }
+
+                    // Update machine states for the new stage
+                    await machineService.UpdateMachinesForStageAsync(
+                        updatedSimulation.CurrentStage);
+
+                    // Notify connected dashboards
+                    await _notifier.NotifySimulationsChangedAsync();
+                    await _notifier.NotifyMachinesChangedAsync();
 
                     _logger.LogInformation(
                         "Simulation {SimulationId} advanced to stage {Stage}.",
-                        updatedSimulation!.Id,
+                        updatedSimulation.Id,
                         updatedSimulation.CurrentStage);
                 }
                 catch (InvalidOperationException ex)
