@@ -1,4 +1,4 @@
-
+using Helios.Api.BackgroundServices;
 using Helios.Application.Services;
 using Helios.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -14,9 +14,7 @@ builder.Services.AddScoped<IMachineRepository, MachineRepository>();
 builder.Services.AddScoped<MachineService>();
 builder.Services.AddScoped<ISimulationRepository, SimulationRepository>();
 builder.Services.AddScoped<SimulationService>();
-
-
-
+builder.Services.AddHostedService<SimulationWorker>();
 
 var connectionString = builder.Configuration
         .GetConnectionString("HeliosDatabase")
