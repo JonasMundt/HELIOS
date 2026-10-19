@@ -17,7 +17,10 @@ builder.Services.AddScoped<ISimulationRepository, SimulationRepository>();
 builder.Services.AddScoped<SimulationService>();
 builder.Services.AddHostedService<SimulationWorker>();
 
-var connectionString = builder.Configuration
+
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    var connectionString = builder.Configuration
         .GetConnectionString("HeliosDatabase")
         ?? throw new InvalidOperationException(
             "Database connection string is missing."
@@ -25,6 +28,8 @@ var connectionString = builder.Configuration
 
     builder.Services.AddDbContext<HeliosDbContext>(options =>
         options.UseNpgsql(connectionString));
+}
+
 
 
 var app = builder.Build();
@@ -263,3 +268,4 @@ var app = builder.Build();
 
 
 app.Run();
+public partial class Program { }
