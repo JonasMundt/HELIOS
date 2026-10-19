@@ -1,0 +1,47 @@
+
+.dashboard {
+  min-height: 100vh;
+  padding: 48px;
+  background: #0b1120;
+  color: #e2e8f0;
+  font-family: Arial, sans-serif;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #334155;
+}
+
+.header h1 {
+  color: #38bdf8;
+  letter-spacing: 4px;
+  font-size: 36px;
+}
+
+.header span {
+  color: #94a3b8;
+}
+
+.status-card {
+  margin-top: 40px;
+  padding: 30px;
+  max-width: 500px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+}
+
+.status-card h2 {
+  margin-top: 0;
+}
+
+.online {
+  color: #22c55e;
+}
+
+.error {
+  color: #ef4444;
+}
