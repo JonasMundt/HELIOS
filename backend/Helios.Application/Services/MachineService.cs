@@ -1,45 +1,25 @@
 
+using Helios.Application.Interfaces;
 using Helios.Domain.Entities;
-using Helios.Domain.Enums;
 
 namespace Helios.Application.Services;
 
 public class MachineService
 {
-    private readonly List<Machine> _machines = new();
+    private readonly IMachineRepository _repository;
 
-    public MachineService()
+    public MachineService(IMachineRepository repository)
     {
-        _machines.Add(new Machine(
-            "Conveyor Belt 01",
-            MachineType.ConveyorBelt
-        ));
-
-        _machines.Add(new Machine(
-            "Scanner Station 01",
-            MachineType.Scanner
-        ));
-
-        _machines.Add(new Machine(
-            "Hydraulic Press 01",
-            MachineType.HydraulicPress
-        ));
-
-        _machines.Add(new Machine(
-            "Robot Arm 01",
-            MachineType.RobotArm
-        ));
+        _repository = repository;
     }
 
-    public IReadOnlyList<Machine> GetAllMachines()
+    public async Task<IReadOnlyList<Machine>> GetAllMachinesAsync()
     {
-        return _machines.AsReadOnly();
+        return await _repository.GetAllAsync();
     }
 
-    public Machine? GetMachineById(Guid id)
+    public async Task<Machine?> GetMachineByIdAsync(Guid id)
     {
-        return _machines.FirstOrDefault(
-            machine => machine.Id == id
-        );
+        return await _repository.GetByIdAsync(id);
     }
 }

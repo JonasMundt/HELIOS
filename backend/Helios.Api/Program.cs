@@ -1,13 +1,43 @@
 
 using Helios.Application.Services;
+using Helios.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+using Helios.Application.Interfaces;
+using Helios.Infrastructure.Repositories;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Register application services
 builder.Services.AddOpenApi();
-builder.Services.AddSingleton<MachineService>();
+builder.Services.AddScoped<IMachineRepository, MachineRepository>();
+builder.Services.AddScoped<MachineService>();
+
+
+
+var connectionString = builder.Configuration
+    .GetConnectionString("HeliosDatabase")
+    ?? throw new InvalidOperationException(
+        "Database connection string is missing."
+    );
+
+builder.Services.AddDbContext<HeliosDbContext>(options =>
+    options.UseNpgsql(connectionString));
+
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+
+    var dbContext = scope.ServiceProvider
+        .GetRequiredService<HeliosDbContext>();
+
+    await DatabaseSeeder.SeedAsync(dbContext);
+}
+
 
 if (app.Environment.IsDevelopment())
 {
@@ -16,29 +46,19 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// System status endpoint
-app.MapGet("/api/system/status", () =>
+
+app.MapGet("/api/machines",
+    async (MachineService machineService) =>
 {
-    return Results.Ok(new
-    {
-        Name = "HELIOS",
-        Version = "0.1.0",
-        Status = "ONLINE",
-        Description = "Industrial Digital Twin Platform"
-    });
+    var machines = await machineService.GetAllMachinesAsync();
+
+    return Results.Ok(machines);
 });
 
-// Get all machines
-app.MapGet("/api/machines", (MachineService machineService) =>
-{
-    return Results.Ok(machineService.GetAllMachines());
-});
-
-// Get a machine by ID
 app.MapGet("/api/machines/{id:guid}",
-    (Guid id, MachineService machineService) =>
+    async (Guid id, MachineService machineService) =>
 {
-    var machine = machineService.GetMachineById(id);
+    var machine = await machineService.GetMachineByIdAsync(id);
 
     if (machine is null)
     {
