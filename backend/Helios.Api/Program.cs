@@ -47,6 +47,18 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 
+app.MapGet("/api/system/status", () =>
+{
+    return Results.Ok(new
+    {
+        Name = "HELIOS",
+        Version = "0.1.0",
+        Status = "ONLINE",
+        Description = "Industrial Digital Twin Platform"
+    });
+});
+
+
 app.MapGet("/api/machines",
     async (MachineService machineService) =>
 {
@@ -70,5 +82,47 @@ app.MapGet("/api/machines/{id:guid}",
 
     return Results.Ok(machine);
 });
+
+
+app.MapPost("/api/machines/{id:guid}/start",
+    async (Guid id, MachineService machineService) =>
+{
+    var success = await machineService.StartMachineAsync(id);
+
+    if (!success)
+    {
+        return Results.NotFound(new
+        {
+            Message = "Machine not found."
+        });
+    }
+
+    return Results.Ok(new
+    {
+        Message = "Machine started successfully.",
+        MachineId = id
+    });
+});
+
+app.MapPost("/api/machines/{id:guid}/stop",
+    async (Guid id, MachineService machineService) =>
+{
+    var success = await machineService.StopMachineAsync(id);
+
+    if (!success)
+    {
+        return Results.NotFound(new
+        {
+            Message = "Machine not found."
+        });
+    }
+
+    return Results.Ok(new
+    {
+        Message = "Machine stopped successfully.",
+        MachineId = id
+    });
+});
+
 
 app.Run();

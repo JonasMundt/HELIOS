@@ -15,10 +15,12 @@ public class MachineRepository : IMachineRepository
         _context = context;
     }
 
+
     public async Task<IReadOnlyList<Machine>> GetAllAsync()
     {
         return await _context.Machines
             .AsNoTracking()
+            .OrderBy(machine => machine.Type)
             .ToListAsync();
     }
 

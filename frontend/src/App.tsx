@@ -37,6 +37,7 @@ function App() {
   const [machines, setMachines] = useState<Machine[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [busyMachineId, setBusyMachineId] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -52,11 +53,8 @@ function App() {
           throw new Error('Failed to load dashboard data')
         }
 
-        const systemData: SystemStatus = await systemResponse.json()
-        const machinesData: Machine[] = await machinesResponse.json()
-
-        setSystem(systemData)
-        setMachines(machinesData)
+        setSystem(await systemResponse.json())
+        setMachines(await machinesResponse.json())
       } catch (err) {
         if (controller.signal.aborted) return
         setError('Backend could not be reached.')
@@ -71,6 +69,35 @@ function App() {
     return () => controller.abort()
   }, [])
 
+  async function controlMachine(id: string, action: 'start' | 'stop') {
+    setBusyMachineId(id)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/machines/${id}/${action}`, {
+        method: 'POST',
+      })
+
+      if (!response.ok) {
+        throw new Error(`Machine control failed: ${response.status}`)
+      }
+
+      const machinesResponse = await fetch('/api/machines')
+
+      if (!machinesResponse.ok) {
+        throw new Error('Failed to refresh machines')
+      }
+
+      const updatedMachines: Machine[] = await machinesResponse.json()
+      setMachines(updatedMachines)
+    } catch (err) {
+      setError('Machine control failed. Please try again.')
+      console.error(err)
+    } finally {
+      setBusyMachineId(null)
+    }
+  }
+
   return (
     <main className="dashboard">
       <header className="header">
@@ -83,8 +110,6 @@ function App() {
 
         {loading ? (
           <p>Connecting to backend...</p>
-        ) : error ? (
-          <p className="error">{error}</p>
         ) : system ? (
           <>
             <p>
@@ -94,8 +119,12 @@ function App() {
             <p>Version: {system.version}</p>
             <p>{system.description}</p>
           </>
-        ) : null}
+        ) : (
+          <p>System status unavailable.</p>
+        )}
       </section>
+
+      {error && <p className="error" role="alert">{error}</p>}
 
       <section className="machines-section">
         <h2>Machines</h2>
@@ -104,14 +133,35 @@ function App() {
           {machines.map((machine) => (
             <article className="machine-card" key={machine.id}>
               <h3>{machine.name}</h3>
+
               <p>Type: {machineTypes[machine.type] ?? 'Unknown'}</p>
+
               <p>
                 Status:{' '}
                 <span className={`machine-status status-${machine.status}`}>
                   {machineStatuses[machine.status] ?? 'UNKNOWN'}
                 </span>
               </p>
+
               <small>ID: {machine.id.slice(0, 8)}...</small>
+
+              <div className="machine-actions">
+                <button
+                  className="start-button"
+                  disabled={busyMachineId !== null || machine.status === 2}
+                  onClick={() => controlMachine(machine.id, 'start')}
+                >
+                  Start
+                </button>
+
+                <button
+                  className="stop-button"
+                  disabled={busyMachineId !== null || machine.status === 0}
+                  onClick={() => controlMachine(machine.id, 'stop')}
+                >
+                  Stop
+                </button>
+              </div>
             </article>
           ))}
         </div>

@@ -123,3 +123,44 @@
   }
 }
 
+
+.machine-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.machine-actions button {
+  flex: 1;
+  padding: 11px 16px;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.start-button {
+  background: #15803d;
+}
+
+.start-button:hover:not(:disabled) {
+  background: #16a34a;
+}
+
+.stop-button {
+  background: #b91c1c;
+}
+
+.stop-button:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.machine-actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+
