@@ -1,10 +1,14 @@
 
 using Helios.Domain.Entities;
+using Helios.Infrastructure.Identity;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Helios.Infrastructure.Persistence;
 
-public class HeliosDbContext : DbContext
+public class HeliosDbContext
+    : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>
 {
     public HeliosDbContext(
         DbContextOptions<HeliosDbContext> options

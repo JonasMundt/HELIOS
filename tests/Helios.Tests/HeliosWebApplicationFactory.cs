@@ -1,6 +1,7 @@
 
 using Helios.Api.BackgroundServices;
 using Helios.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -38,6 +39,13 @@ public class HeliosWebApplicationFactory : WebApplicationFactory<Program>
 
             services.AddDbContext<HeliosDbContext>(options =>
                 options.UseSqlite(_connection));
+
+            // Register authentication used only in integration tests.
+            services
+                .AddAuthentication(TestAuthHandler.Scheme)
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
+                    TestAuthHandler.Scheme,
+                    options => { });
         });
     }
 

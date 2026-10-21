@@ -8,6 +8,13 @@ using Helios.Domain.Enums;
 using Helios.Infrastructure.Persistence;
 using Helios.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Helios.Infrastructure.Identity;
+using Microsoft.AspNetCore.Identity;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Helios.Api.Endpoints;
+using Helios.Application.Constants;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<HeliosRealtimeNotifier>();
+builder.Services.AddScoped<JwtTokenService>();
 
 builder.Services.AddScoped<IMachineRepository, MachineRepository>();
 builder.Services.AddScoped<MachineService>();
@@ -37,6 +45,135 @@ if (!builder.Environment.IsEnvironment("Testing"))
         options.UseNpgsql(connectionString));
 }
 
+// --------------------------------------------------
+// ASP.NET CORE IDENTITY
+// --------------------------------------------------
+
+builder.Services
+    .AddIdentityCore<ApplicationUser>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+
+        options.Password.RequiredLength = 12;
+        options.Password.RequireDigit = true;
+        options.Password.RequireLowercase = true;
+        options.Password.RequireUppercase = true;
+        options.Password.RequireNonAlphanumeric = true;
+
+        options.Lockout.DefaultLockoutTimeSpan =
+            TimeSpan.FromMinutes(15);
+
+        options.Lockout.MaxFailedAccessAttempts = 5;
+        options.Lockout.AllowedForNewUsers = true;
+
+        options.SignIn.RequireConfirmedEmail = false;
+    })
+    .AddRoles<IdentityRole<Guid>>()
+    .AddEntityFrameworkStores<HeliosDbContext>()
+    .AddSignInManager()
+    .AddDefaultTokenProviders();
+
+
+// --------------------------------------------------
+// JWT AUTHENTICATION
+// --------------------------------------------------
+
+// Integration tests run without local JWT user secrets.
+// Their authentication configuration will be extended
+// when we add dedicated authentication tests.
+if (builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddAuthentication();
+}
+else
+{
+    var jwtKey = builder.Configuration["Jwt:Key"]
+        ?? throw new InvalidOperationException(
+            "JWT signing key is missing.");
+
+    var jwtIssuer = builder.Configuration["Jwt:Issuer"]
+        ?? throw new InvalidOperationException(
+            "JWT issuer is missing.");
+
+    var jwtAudience = builder.Configuration["Jwt:Audience"]
+        ?? throw new InvalidOperationException(
+            "JWT audience is missing.");
+
+    var keyBytes = Convert.FromBase64String(jwtKey);
+
+    if (keyBytes.Length < 32)
+    {
+        throw new InvalidOperationException(
+            "JWT signing key must be at least 32 bytes.");
+    }
+
+    builder.Services
+        .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.MapInboundClaims = false;
+
+    // Allow SignalR to receive JWT tokens via query string
+    // when using WebSockets or Server-Sent Events.
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken =
+                context.Request.Query["access_token"].ToString();
+
+            var path = context.HttpContext.Request.Path;
+
+            // Only accept query-string tokens for our SignalR hub.
+            if (!string.IsNullOrEmpty(accessToken) &&
+                path.StartsWithSegments("/hubs/helios"))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        }
+    };
+
+
+            options.TokenValidationParameters =
+                new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = jwtIssuer,
+
+                    ValidateAudience = true,
+                    ValidAudience = jwtAudience,
+
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey =
+                        new SymmetricSecurityKey(keyBytes),
+
+                    ValidateLifetime = true,
+                    RequireExpirationTime = true,
+                    RequireSignedTokens = true,
+
+                    ClockSkew = TimeSpan.FromSeconds(30),
+
+                    RoleClaimType = "role",
+                    NameClaimType = "email"
+                };
+        });
+}
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("CanOperate", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+
+        policy.RequireRole(
+            UserRoles.Admin,
+            UserRoles.Operator
+        );
+    });
+});
+
 var app = builder.Build();
 
 // Seed development database
@@ -48,7 +185,69 @@ if (app.Environment.IsDevelopment())
         .GetRequiredService<HeliosDbContext>();
 
     await DatabaseSeeder.SeedAsync(dbContext);
+
+    // Create default HELIOS roles
+    var roleManager = scope.ServiceProvider
+        .GetRequiredService<RoleManager<IdentityRole<Guid>>>();
+
+    await RoleSeeder.SeedAsync(roleManager);
+
+
+    // ------------------------------------------
+    // DEVELOPMENT-ONLY OPERATOR ACCOUNT
+    // ------------------------------------------
+
+    var operatorEmail =
+        app.Configuration["Development:OperatorEmail"];
+
+    if (!string.IsNullOrWhiteSpace(operatorEmail))
+    {
+        var userManager = scope.ServiceProvider
+            .GetRequiredService<UserManager<ApplicationUser>>();
+
+        var operatorUser =
+            await userManager.FindByEmailAsync(operatorEmail);
+
+        if (operatorUser is null)
+        {
+            throw new InvalidOperationException(
+                "Development operator account was not found.");
+        }
+
+        if (!await userManager.IsInRoleAsync(
+                operatorUser, UserRoles.Operator))
+        {
+            var result = await userManager.AddToRoleAsync(
+                operatorUser, UserRoles.Operator);
+
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    "Could not assign development operator role.");
+            }
+        }
+
+        // Replace the default Viewer role with Operator.
+        if (await userManager.IsInRoleAsync(
+                operatorUser, UserRoles.Viewer))
+        {
+            var result = await userManager.RemoveFromRoleAsync(
+                operatorUser, UserRoles.Viewer);
+
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    "Could not remove development Viewer role.");
+            }
+        }
+
+        app.Logger.LogInformation(
+            "Development operator configured successfully.");
+    }
+
+
 }
+
 
 // OpenAPI in development
 if (app.Environment.IsDevelopment())
@@ -71,7 +270,13 @@ app.MapGet("/api/system/status", () =>
         Status = "ONLINE",
         Description = "Industrial Digital Twin Platform"
     });
-});
+}).RequireAuthorization();
+
+// --------------------------------------------------
+// AUTHENTICATION
+// --------------------------------------------------
+
+app.MapAuthEndpoints();
 
 // --------------------------------------------------
 // MACHINES
@@ -84,7 +289,7 @@ app.MapGet("/api/machines",
     var machines = await machineService.GetAllMachinesAsync();
 
     return Results.Ok(machines);
-});
+}).RequireAuthorization();
 
 // Get a specific machine
 app.MapGet("/api/machines/{id:guid}",
@@ -103,7 +308,7 @@ app.MapGet("/api/machines/{id:guid}",
     }
 
     return Results.Ok(machine);
-});
+}).RequireAuthorization();
 
 // Start machine manually
 app.MapPost("/api/machines/{id:guid}/start",
@@ -143,7 +348,7 @@ app.MapPost("/api/machines/{id:guid}/start",
         Message = "Machine started successfully.",
         MachineId = id
     });
-});
+}).RequireAuthorization("CanOperate");
 
 // Stop machine manually
 app.MapPost("/api/machines/{id:guid}/stop",
@@ -183,7 +388,7 @@ app.MapPost("/api/machines/{id:guid}/stop",
         Message = "Machine stopped successfully.",
         MachineId = id
     });
-});
+}).RequireAuthorization("CanOperate");
 
 // --------------------------------------------------
 // SIMULATIONS
@@ -196,7 +401,7 @@ app.MapGet("/api/simulations",
     var simulations = await simulationService.GetAllAsync();
 
     return Results.Ok(simulations);
-});
+}).RequireAuthorization();
 
 // Get a specific simulation
 app.MapGet("/api/simulations/{id:guid}",
@@ -209,7 +414,7 @@ app.MapGet("/api/simulations/{id:guid}",
     return simulation is null
         ? Results.NotFound()
         : Results.Ok(simulation);
-});
+}).RequireAuthorization();
 
 // Start a new simulation
 app.MapPost("/api/simulations",
@@ -236,7 +441,7 @@ app.MapPost("/api/simulations",
             Message = ex.Message
         });
     }
-});
+}).RequireAuthorization("CanOperate");
 
 // Cancel a running simulation
 app.MapPost("/api/simulations/{id:guid}/stop",
@@ -278,7 +483,7 @@ app.MapPost("/api/simulations/{id:guid}/stop",
             Message = ex.Message
         });
     }
-});
+}).RequireAuthorization("CanOperate");
 
 // Advance a simulation manually
 app.MapPost("/api/simulations/{id:guid}/advance",
@@ -311,13 +516,14 @@ app.MapPost("/api/simulations/{id:guid}/advance",
             Message = ex.Message
         });
     }
-});
+}).RequireAuthorization("CanOperate");
 
 // --------------------------------------------------
 // SIGNALR
 // --------------------------------------------------
 
-app.MapHub<HeliosHub>("/hubs/helios");
+app.MapHub<HeliosHub>("/hubs/helios")
+    .RequireAuthorization();
 
 app.Run();
 

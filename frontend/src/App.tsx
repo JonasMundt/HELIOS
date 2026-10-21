@@ -7,6 +7,15 @@ import {
   stopSignalRConnection,
   subscribeToReconnect,
 } from './services/signalRService'
+import LoginScreen from './components/LoginScreen'
+import {
+  AuthRequestError,
+  authenticatedFetch,
+  getSession,
+  logout,
+  type AuthSession,
+} from './services/authService'
+import FactoryScene from './components/FactoryScene'
 
 interface SystemStatus {
   name: string
@@ -65,6 +74,83 @@ const productionStages = [
 ]
 
 function App() {
+  const [session, setSession] = useState<AuthSession | null>(
+    () => getSession(),
+  )
+
+  function handleLogout() {
+    logout()
+    setSession(null)
+  }
+
+
+  // --------------------------------------------------
+  // AUTOMATIC SESSION EXPIRATION
+  // --------------------------------------------------
+
+  useEffect(() => {
+    if (!session) return
+
+    const expiresAt = Date.parse(session.expiresAtUtc)
+
+    function checkSessionExpiration() {
+      if (!getSession()) {
+        logout()
+        setSession(null)
+      }
+    }
+
+    const remainingTime = Number.isFinite(expiresAt)
+      ? Math.max(0, expiresAt - Date.now())
+      : 0
+
+    const timeoutId = window.setTimeout(
+      checkSessionExpiration,
+      remainingTime,
+    )
+
+    // Recheck when returning to an inactive browser tab.
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        checkSessionExpiration()
+      }
+    }
+
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibilityChange,
+    )
+
+    return () => {
+      window.clearTimeout(timeoutId)
+
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange,
+      )
+    }
+  }, [session])
+
+
+
+  if (!session) {
+    return <LoginScreen onLogin={setSession} />
+  }
+
+  return (
+    <Dashboard
+      session={session}
+      onLogout={handleLogout}
+    />
+  )
+}
+
+interface DashboardProps {
+  session: AuthSession
+  onLogout: () => void
+}
+
+function Dashboard({ session, onLogout }: DashboardProps) {
   const [system, setSystem] = useState<SystemStatus | null>(null)
   const [machines, setMachines] = useState<Machine[]>([])
   const [simulations, setSimulations] = useState<SimulationRun[]>([])
@@ -89,13 +175,13 @@ function App() {
           machinesResponse,
           simulationsResponse,
         ] = await Promise.all([
-          fetch('/api/system/status', {
+          authenticatedFetch('/api/system/status', {
             signal: controller.signal,
           }),
-          fetch('/api/machines', {
+          authenticatedFetch('/api/machines', {
             signal: controller.signal,
           }),
-          fetch('/api/simulations', {
+          authenticatedFetch('/api/simulations', {
             signal: controller.signal,
           }),
         ])
@@ -161,7 +247,7 @@ function App() {
   useEffect(() => {
     async function refreshMachines() {
       try {
-        const response = await fetch('/api/machines')
+        const response = await authenticatedFetch('/api/machines')
 
         if (!response.ok) {
           throw new Error('Failed to refresh machines')
@@ -194,7 +280,6 @@ function App() {
     }
   }, [])
 
-  
   // --------------------------------------------------
   // LIVE SIMULATION UPDATES
   // --------------------------------------------------
@@ -202,7 +287,7 @@ function App() {
   useEffect(() => {
     async function refreshSimulations() {
       try {
-        const response = await fetch('/api/simulations')
+        const response = await authenticatedFetch('/api/simulations')
 
         if (!response.ok) {
           throw new Error('Failed to refresh simulations')
@@ -215,7 +300,10 @@ function App() {
 
         console.log('HELIOS LIVE: Simulation dashboard updated!')
       } catch (err) {
-        console.error('SignalR simulation refresh failed:', err)
+        console.error(
+          'SignalR simulation refresh failed:',
+          err,
+        )
       }
     }
 
@@ -232,8 +320,10 @@ function App() {
     }
   }, [])
 
+  // --------------------------------------------------
+  // SYNCHRONIZE AFTER SIGNALR RECONNECT
+  // --------------------------------------------------
 
-  // Synchronize dashboard after SignalR reconnects
   useEffect(() => {
     let active = true
 
@@ -241,8 +331,8 @@ function App() {
       try {
         const [machinesResponse, simulationsResponse] =
           await Promise.all([
-            fetch('/api/machines'),
-            fetch('/api/simulations'),
+            authenticatedFetch('/api/machines'),
+            authenticatedFetch('/api/simulations'),
           ])
 
         if (!machinesResponse.ok || !simulationsResponse.ok) {
@@ -287,6 +377,31 @@ function App() {
 
 
   // --------------------------------------------------
+  // CONTROL ERROR HANDLING
+  // --------------------------------------------------
+
+  function handleControlError(
+    err: unknown,
+    fallbackMessage: string,
+  ) {
+    if (err instanceof AuthRequestError) {
+      if (err.status === 401) {
+        onLogout()
+        return
+      }
+
+      if (err.status === 403) {
+        setError(err.message)
+        return
+      }
+    }
+
+    setError(fallbackMessage)
+    console.error(err)
+  }
+
+
+  // --------------------------------------------------
   // MANUAL MACHINE CONTROL
   // --------------------------------------------------
 
@@ -294,13 +409,13 @@ function App() {
     id: string,
     action: 'start' | 'stop',
   ) {
-    if (simulationRunning || simulationBusy) return
+    if (!canOperate || simulationRunning || simulationBusy) return
 
     setBusyMachineId(id)
     setError(null)
 
     try {
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `/api/machines/${id}/${action}`,
         {
           method: 'POST',
@@ -313,7 +428,7 @@ function App() {
         )
       }
 
-      const machinesResponse = await fetch('/api/machines')
+      const machinesResponse = await authenticatedFetch('/api/machines')
 
       if (!machinesResponse.ok) {
         throw new Error('Failed to refresh machines')
@@ -324,8 +439,10 @@ function App() {
 
       setMachines(updatedMachines)
     } catch (err) {
-      setError('Machine control failed. Please try again.')
-      console.error(err)
+    handleControlError(
+    err,
+    'Machine control failed. Please try again.',
+    )
     } finally {
       setBusyMachineId(null)
     }
@@ -336,15 +453,15 @@ function App() {
   // --------------------------------------------------
 
   async function startSimulation() {
-    if (simulationRunning || simulationBusy) return
+    if (!canOperate || simulationRunning || simulationBusy) return
 
     setSimulationBusy(true)
     setError(null)
 
     try {
-      const response = await fetch('/api/simulations', {
-        method: 'POST',
-      })
+      const response = await authenticatedFetch('/api/simulations', {
+          method: 'POST',
+        })
 
       if (!response.ok) {
         throw new Error(
@@ -353,7 +470,7 @@ function App() {
       }
 
       const simulationsResponse =
-        await fetch('/api/simulations')
+        await authenticatedFetch('/api/simulations')
 
       if (!simulationsResponse.ok) {
         throw new Error('Failed to refresh simulations')
@@ -363,9 +480,11 @@ function App() {
         await simulationsResponse.json()
 
       setSimulations(updatedSimulations)
-    } catch (err) {
-      setError('Could not start simulation.')
-      console.error(err)
+      } catch (err) {
+      handleControlError(
+        err,
+        'Could not start simulation.',
+      )
     } finally {
       setSimulationBusy(false)
     }
@@ -376,13 +495,13 @@ function App() {
   // --------------------------------------------------
 
   async function stopSimulation(id: string) {
-    if (simulationBusy) return
+    if (!canOperate || simulationBusy) return
 
     setSimulationBusy(true)
     setError(null)
 
     try {
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `/api/simulations/${id}/stop`,
         {
           method: 'POST',
@@ -397,8 +516,8 @@ function App() {
 
       const [simulationsResponse, machinesResponse] =
         await Promise.all([
-          fetch('/api/simulations'),
-          fetch('/api/machines'),
+          authenticatedFetch('/api/simulations'),
+          authenticatedFetch('/api/machines'),
         ])
 
       if (
@@ -419,8 +538,10 @@ function App() {
       setSimulations(updatedSimulations)
       setMachines(updatedMachines)
     } catch (err) {
-      setError('Could not stop simulation.')
-      console.error(err)
+      handleControlError(
+        err,
+        'Could not stop simulation.',
+      )
     } finally {
       setSimulationBusy(false)
     }
@@ -434,12 +555,30 @@ function App() {
     (simulation) => simulation.status === 1,
   )
 
+  // Choose the running simulation first. After it finishes,
+  // retain the most recent run so the completed workpiece
+  // remains visible on the robot output station.
+  const currentFactorySimulation =
+    simulations.find((simulation) => simulation.status === 1) ??
+    simulations.find((simulation) => simulation.status === 0) ??
+    [...simulations].sort(
+      (a, b) =>
+        (Date.parse(b.startTime ?? '') || 0) -
+        (Date.parse(a.startTime ?? '') || 0),
+    )[0] ??
+    null
+
+  const canOperate =
+  session.roles.includes('Admin') ||
+  session.roles.includes('Operator')
+
   const machineControlsDisabled =
-    loading ||
-    simulationsLoading ||
-    simulationRunning ||
-    simulationBusy ||
-    busyMachineId !== null
+  !canOperate ||
+  loading ||
+  simulationsLoading ||
+  simulationRunning ||
+  simulationBusy ||
+  busyMachineId !== null
 
   // --------------------------------------------------
   // DASHBOARD UI
@@ -450,6 +589,26 @@ function App() {
       <header className="header">
         <h1>HELIOS</h1>
         <span>Industrial Digital Twin Platform</span>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <span>
+            {session.email} ({session.roles.join(', ')})
+          </span>
+
+          <button
+            type="button"
+            onClick={onLogout}
+          >
+            Log out
+          </button>
+        </div>
       </header>
 
       <section className="status-card">
@@ -480,6 +639,17 @@ function App() {
           {error}
         </p>
       )}
+
+      <FactoryScene
+        machines={machines}
+        activeStage={
+          currentFactorySimulation?.status === 1
+            ? currentFactorySimulation.currentStage
+            : null
+        }
+        simulationId={currentFactorySimulation?.id ?? null}
+        simulationStatus={currentFactorySimulation?.status ?? null}
+      />
 
       <section className="machines-section">
         <h2>Machines</h2>
@@ -549,12 +719,13 @@ function App() {
         <button
           className="start-button"
           disabled={
-            loading ||
-            simulationsLoading ||
-            simulationBusy ||
-            simulationRunning ||
-            busyMachineId !== null
-          }
+          !canOperate ||
+          loading ||
+          simulationsLoading ||
+          simulationBusy ||
+          simulationRunning ||
+          busyMachineId !== null
+        }
           onClick={startSimulation}
         >
           {simulationBusy
@@ -633,7 +804,7 @@ function App() {
                     <div className="simulation-actions">
                       <button
                         className="stop-button"
-                        disabled={simulationBusy}
+                        disabled={!canOperate || simulationBusy}
                         onClick={() =>
                           stopSimulation(simulation.id)
                         }
