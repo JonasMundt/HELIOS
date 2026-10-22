@@ -582,3 +582,24 @@ body {
   }
 }
 
+/* ------------------------------------------
+   3D FACTORY LOADING STATE
+------------------------------------------ */
+
+.factory-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 350px;
+  padding: 24px;
+
+  color: #8fb9d9;
+  background: #0b1424;
+
+  border: 1px solid #29415c;
+  border-radius: 12px;
+
+  font-size: 14px;
+  font-weight: 500;
+}
+

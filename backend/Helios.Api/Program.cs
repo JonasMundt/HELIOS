@@ -176,6 +176,36 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
+
+ // --------------------------------------------------
+ // OPTIONAL DATABASE INITIALIZATION
+ // Intended for local Docker demonstrations
+ // --------------------------------------------------
+
+if (app.Configuration.GetValue<bool>("Helios:InitializeDatabase"))
+{
+    using var scope = app.Services.CreateScope();
+
+    var dbContext = scope.ServiceProvider
+        .GetRequiredService<HeliosDbContext>();
+
+    // Apply pending Entity Framework Core migrations.
+    await dbContext.Database.MigrateAsync();
+
+    // Ensure required Identity roles exist.
+    var roleManager = scope.ServiceProvider
+        .GetRequiredService<RoleManager<IdentityRole<Guid>>>();
+
+    await RoleSeeder.SeedAsync(roleManager);
+
+    // Create initial machines if the table is empty.
+    await DatabaseSeeder.SeedAsync(dbContext);
+
+    app.Logger.LogInformation(
+        "HELIOS database initialization completed.");
+}
+
+
 // Seed development database
 if (app.Environment.IsDevelopment())
 {
@@ -245,7 +275,87 @@ if (app.Environment.IsDevelopment())
             "Development operator configured successfully.");
     }
 
+}
 
+ // --------------------------------------------------
+ // FIRST OPERATOR BOOTSTRAP
+ // Explicit local administrative command
+ // --------------------------------------------------
+
+if (args.Length > 0 && args[0] == "--bootstrap-operator")
+{
+    if (args.Length != 2 ||
+        string.IsNullOrWhiteSpace(args[1]))
+    {
+        throw new ArgumentException(
+            "Usage: --bootstrap-operator <email>");
+    }
+
+    using var scope = app.Services.CreateScope();
+
+    var userManager = scope.ServiceProvider
+        .GetRequiredService<UserManager<ApplicationUser>>();
+
+    // Bootstrap is only allowed when no privileged
+    // accounts exist yet.
+    var existingOperators =
+        await userManager.GetUsersInRoleAsync(
+            UserRoles.Operator);
+
+    var existingAdmins =
+        await userManager.GetUsersInRoleAsync(
+            UserRoles.Admin);
+
+    if (existingOperators.Count > 0 ||
+        existingAdmins.Count > 0)
+    {
+        throw new InvalidOperationException(
+            "Bootstrap refused: an Operator or Admin already exists.");
+    }
+
+    var email = args[1].Trim();
+
+    var user = await userManager.FindByEmailAsync(email);
+
+    if (user is null)
+    {
+        throw new InvalidOperationException(
+            "Bootstrap refused: user not found. Register as Viewer first.");
+    }
+
+    if (!await userManager.IsInRoleAsync(
+            user, UserRoles.Viewer))
+    {
+        throw new InvalidOperationException(
+            "Bootstrap refused: user must have the Viewer role.");
+    }
+
+    // Promote the existing account without changing
+    // or handling its password.
+    var addResult = await userManager.AddToRoleAsync(
+        user, UserRoles.Operator);
+
+    if (!addResult.Succeeded)
+    {
+        throw new InvalidOperationException(
+            "Could not assign the Operator role.");
+    }
+
+    var removeResult = await userManager.RemoveFromRoleAsync(
+        user, UserRoles.Viewer);
+
+    if (!removeResult.Succeeded)
+    {
+        throw new InvalidOperationException(
+            "Operator was assigned, but Viewer removal failed. Review account roles.");
+    }
+
+    app.Logger.LogInformation(
+        "HELIOS initial Operator configured for {Email}.",
+        email);
+
+    // Exit without starting the web server or worker.
+    return;
 }
 
 

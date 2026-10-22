@@ -1,5 +1,4 @@
-
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import './App.css'
 import {
   signalRConnection,
@@ -15,8 +14,12 @@ import {
   logout,
   type AuthSession,
 } from './services/authService'
-import FactoryScene from './components/FactoryScene'
 import { hasOperatePermission } from './services/permissions'
+import FactoryErrorBoundary from './components/FactoryErrorBoundary'
+
+const FactoryScene = lazy(
+  () => import('./components/FactoryScene'),
+)
 
 interface SystemStatus {
   name: string
@@ -321,6 +324,7 @@ function Dashboard({ session, onLogout }: DashboardProps) {
     }
   }, [])
 
+
   // --------------------------------------------------
   // SYNCHRONIZE AFTER SIGNALR RECONNECT
   // --------------------------------------------------
@@ -330,39 +334,65 @@ function Dashboard({ session, onLogout }: DashboardProps) {
 
     async function refreshAfterReconnect() {
       try {
-        const [machinesResponse, simulationsResponse] =
-          await Promise.all([
-            authenticatedFetch('/api/machines'),
-            authenticatedFetch('/api/simulations'),
-          ])
+        // Refresh all dashboard data after reconnecting.
+        const [
+          systemResponse,
+          machinesResponse,
+          simulationsResponse,
+        ] = await Promise.all([
+          authenticatedFetch('/api/system/status'),
+          authenticatedFetch('/api/machines'),
+          authenticatedFetch('/api/simulations'),
+        ])
 
-        if (!machinesResponse.ok || !simulationsResponse.ok) {
-          throw new Error('Failed to synchronize dashboard')
+        if (
+          !systemResponse.ok ||
+          !machinesResponse.ok ||
+          !simulationsResponse.ok
+        ) {
+          throw new Error(
+            'Failed to synchronize dashboard',
+          )
         }
 
-        const [updatedMachines, updatedSimulations]: [
+        const [
+          updatedSystem,
+          updatedMachines,
+          updatedSimulations,
+        ]: [
+          SystemStatus,
           Machine[],
           SimulationRun[],
         ] = await Promise.all([
+          systemResponse.json(),
           machinesResponse.json(),
           simulationsResponse.json(),
         ])
 
         if (!active) return
 
+        // Update the complete dashboard.
+        setSystem(updatedSystem)
         setMachines(updatedMachines)
         setSimulations(updatedSimulations)
+
+        // Clear previous synchronization errors.
+        setError(null)
 
         console.log(
           'HELIOS LIVE: Dashboard synchronized after reconnect!',
         )
       } catch (err) {
-        if (active) {
-          console.error(
-            'SignalR reconnect synchronization failed:',
-            err,
-          )
-        }
+        if (!active) return
+
+        setError(
+          'Dashboard synchronization failed. Displayed data may be outdated.',
+        )
+
+        console.error(
+          'SignalR reconnect synchronization failed:',
+          err,
+        )
       }
     }
 
@@ -375,6 +405,7 @@ function Dashboard({ session, onLogout }: DashboardProps) {
       unsubscribe()
     }
   }, [])
+
 
 
   // --------------------------------------------------
@@ -704,17 +735,30 @@ function Dashboard({ session, onLogout }: DashboardProps) {
         </article>
       </section>
 
-
-      <FactoryScene
-        machines={machines}
-        activeStage={
-          currentFactorySimulation?.status === 1
-            ? currentFactorySimulation.currentStage
-            : null
-        }
-        simulationId={currentFactorySimulation?.id ?? null}
-        simulationStatus={currentFactorySimulation?.status ?? null}
-      />
+      <FactoryErrorBoundary>
+        <Suspense
+          fallback={
+            <section className="factory-loading" role="status">
+              Loading 3D factory...
+            </section>
+          }
+        >
+          <FactoryScene
+            machines={machines}
+            activeStage={
+              currentFactorySimulation?.status === 1
+                ? currentFactorySimulation.currentStage
+                : null
+            }
+            simulationId={
+              currentFactorySimulation?.id ?? null
+            }
+            simulationStatus={
+              currentFactorySimulation?.status ?? null
+            }
+          />
+        </Suspense>
+      </FactoryErrorBoundary>
 
       <section className="machines-section">
         <h2>Machines</h2>
