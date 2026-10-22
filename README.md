@@ -8,6 +8,34 @@ HELIOS demonstrates modern software engineering by combining backend architectur
 > **Project status:** Functional portfolio MVP.
 > HELIOS simulates an industrial production environment. It does not control physical machinery.
 
+## Screenshots
+
+### Dashboard Overview
+
+Monitor production statistics, machine activity, and system status through the HELIOS dashboard.
+
+![HELIOS Dashboard Overview](docs/screenshots/Dashboard_Overview.png)
+
+### Interactive 3D Factory
+
+Explore the production line in 3D, select machines, and monitor their status in real time.
+
+![HELIOS Interactive Factory](docs/screenshots/Interactive_Factory.png)
+
+### Production Simulation
+
+Track production runs through individual manufacturing stages with live status updates and progress indicators.
+
+![HELIOS Production Simulation](docs/screenshots/Production_Simulation.png)
+
+### Simulation History
+
+Review completed and cancelled simulation runs, production results, and progress history.
+
+![HELIOS Simulation History](docs/screenshots/Simulation_History.png)
+
+---
+
 ## Features
 
 ### Interactive 3D Factory
