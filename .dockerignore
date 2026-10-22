@@ -1,0 +1,39 @@
+
+# Git
+.git
+.github
+
+# Environment variables and secrets
+.env
+.env.*
+**/.env
+**/.env.*
+**/secrets.json
+**/*.local
+
+# Node.js
+**/node_modules
+**/dist
+**/coverage
+
+# .NET
+**/bin
+**/obj
+
+# IDE
+.vs
+.vscode
+.idea
+
+# Logs
+*.log
+**/*.log
+
+# Unnecessary for the backend image
+frontend/
+tests/
+docs/
+
+# Operating system
+.DS_Store
+Thumbs.db

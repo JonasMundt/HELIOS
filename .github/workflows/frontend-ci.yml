@@ -1,0 +1,52 @@
+
+name: HELIOS Frontend CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Lint, Test and Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      # Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      # Install dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # Check code quality
+      - name: Run ESLint
+        run: npm run lint
+
+      # Run frontend tests
+      - name: Run Vitest tests
+        run: npm test
+
+      # Build production frontend
+      - name: Build frontend
+        run: npm run build

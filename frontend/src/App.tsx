@@ -16,6 +16,7 @@ import {
   type AuthSession,
 } from './services/authService'
 import FactoryScene from './components/FactoryScene'
+import { hasOperatePermission } from './services/permissions'
 
 interface SystemStatus {
   name: string
@@ -555,6 +556,21 @@ function Dashboard({ session, onLogout }: DashboardProps) {
     (simulation) => simulation.status === 1,
   )
 
+  const runningMachines = machines.filter(
+    (machine) => machine.status === 2,
+  ).length
+
+  const completedSimulations = simulations.filter(
+    (simulation) => simulation.status === 2,
+  ).length
+
+  const totalProducedItems = simulations.reduce(
+    (total, simulation) =>
+      total + simulation.producedItems,
+    0,
+  )
+
+
   // Choose the running simulation first. After it finishes,
   // retain the most recent run so the completed workpiece
   // remains visible on the robot output station.
@@ -568,9 +584,7 @@ function Dashboard({ session, onLogout }: DashboardProps) {
     )[0] ??
     null
 
-  const canOperate =
-  session.roles.includes('Admin') ||
-  session.roles.includes('Operator')
+  const canOperate = hasOperatePermission(session.roles)
 
   const machineControlsDisabled =
   !canOperate ||
@@ -639,6 +653,57 @@ function Dashboard({ session, onLogout }: DashboardProps) {
           {error}
         </p>
       )}
+
+
+      {/* -------------------------------- */}
+      {/* LIVE PRODUCTION KPIS */}
+      {/* -------------------------------- */}
+
+      <section
+        className="kpi-grid"
+        aria-label="Production statistics"
+      >
+        <article className="kpi-card">
+          <span className="kpi-label">Total Machines</span>
+          <strong className="kpi-value">
+            {loading ? '—' : machines.length}
+          </strong>
+          <span className="kpi-description">
+            Registered production machines
+          </span>
+        </article>
+
+        <article className="kpi-card">
+          <span className="kpi-label">Running Machines</span>
+          <strong className="kpi-value">
+            {loading ? '—' : runningMachines}
+          </strong>
+          <span className="kpi-description">
+            Currently active machines
+          </span>
+        </article>
+
+        <article className="kpi-card">
+          <span className="kpi-label">Produced Items</span>
+          <strong className="kpi-value">
+            {simulationsLoading ? '—' : totalProducedItems}
+          </strong>
+          <span className="kpi-description">
+            Total items across simulations
+          </span>
+        </article>
+
+        <article className="kpi-card">
+          <span className="kpi-label">Completed Runs</span>
+          <strong className="kpi-value">
+            {simulationsLoading ? '—' : completedSimulations}
+          </strong>
+          <span className="kpi-description">
+            Successfully finished simulations
+          </span>
+        </article>
+      </section>
+
 
       <FactoryScene
         machines={machines}

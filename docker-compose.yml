@@ -1,22 +1,77 @@
 
 services:
+  # ------------------------------------------
+  # POSTGRESQL DATABASE
+  # ------------------------------------------
   postgres:
     image: postgres:17
     container_name: helios-postgres
     restart: unless-stopped
+
     environment:
       POSTGRES_DB: helios
       POSTGRES_USER: helios
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
     ports:
       - "127.0.0.1:5432:5432"
+
     volumes:
       - helios-postgres-data:/var/lib/postgresql/data
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U helios -d helios"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # ------------------------------------------
+  # HELIOS ASP.NET CORE API
+  # ------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: backend/Helios.Api/Dockerfile
+
+    image: helios-api:dev
+    container_name: helios-api
+    restart: unless-stopped
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+
+      ConnectionStrings__HeliosDatabase: "Host=postgres;Port=5432;Database=helios;Username=helios;Password=${POSTGRES_PASSWORD}"
+
+      Jwt__Key: ${JWT_KEY:?JWT_KEY is required}
+      Jwt__Issuer: ${JWT_ISSUER:?JWT_ISSUER is required}
+      Jwt__Audience: ${JWT_AUDIENCE:?JWT_AUDIENCE is required}
+      Jwt__ExpiresMinutes: "60"
+
+    ports:
+      - "127.0.0.1:5001:8080"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ------------------------------------------
+  # HELIOS REACT FRONTEND
+  # ------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    image: helios-frontend:dev
+    container_name: helios-frontend
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8080:80"
+
+    depends_on:
+      - api
 
 volumes:
   helios-postgres-data:

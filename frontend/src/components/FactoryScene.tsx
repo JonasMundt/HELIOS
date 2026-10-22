@@ -154,7 +154,6 @@ function robotPickPlacePose(time: number) {
 
   let x: number = pickup[0]
   let y: number = TRANSFER_HEIGHT
-  let z: number = pickup[2]
 
   if (time < 0.9) {
     // Approach the package from above.
@@ -199,7 +198,11 @@ function robotPickPlacePose(time: number) {
   }
 
   // Keep z aligned with the two stations.
-  z = MathUtils.lerp(pickup[2], output[2], smoothProgress(time, 1.7, 2.3))
+  const z = MathUtils.lerp(
+    pickup[2],
+    output[2],
+    smoothProgress(time, 1.7, 2.3),
+  )
 
   let grip = 0
   if (time >= 0.9 && time < 1.2) {
@@ -678,7 +681,7 @@ export default function FactoryScene({
         <Canvas
           shadows
           camera={{
-            position: [8, 7, 11],
+            position: [6, 5, 8],
             fov: 45,
           }}
         >
